@@ -244,7 +244,6 @@ if __name__ == '__main__':
         else:
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
-            breakpoint()
             ticket['fields']['summary'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['fields']['description'] = str(defect['description']) + '\n\n' \
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
@@ -280,14 +279,15 @@ if __name__ == '__main__':
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
-            if defect['examples'][0]['backtrace']:
-                ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+            if 'examples' in defect:
+                if 'backtrace' in defect['examples'][0]:
+                    ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
             if defect['type'] in ['mapi', 'zap']:
-                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, defect['defect_number'])
+                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
                 ticket['fields']['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
                 ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
-                ticket['fields']['description'] += '*Sample Request*: \n```\n' + str(base64.b64decode(mapiIssue['request'])) + '```\n'
-                ticket['fields']['description'] += '*Sample Response*: \n```\n' + str(base64.b64decode(mapiIssue['response'])) + '```\n'
+                ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
+                ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
             # --todo-- Can set more fields here
             link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
             print('Link to newly created Gitlab issue: ' + str(link))
