@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import logging
 import subprocess
+import base64
 from enum import Enum, auto
 from requests.auth import HTTPBasicAuth
 
@@ -32,6 +33,12 @@ def getDefect(api, headers, workspace, project, target, defect_id):
     try:
         response = session.request('GET', endpoint, headers=headers)
         result = response.json()
+        if 'message' in result:
+            raise ValueError(result['message'])
+    except ValueError as e:
+        logging.error('Error getting defect.')
+        logging.error(e)
+        sys.exit(1)
     except BaseException as e:
         logging.error('Error getting defect.')
         logging.error(e)
@@ -51,6 +58,19 @@ def getDefectsForRun(api, headers, workspace, project, target, run_id, offset=0)
         logging.error('KeyError:' + str(e) + ', check your parameters.')
         sys.exit(1)
     return results['defects']
+
+def getMapiIssue(api, headers, workspace, project, defect_id):
+    logging.debug('Entering ' + sys._getframe().f_code.co_name)
+    base = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project
+    endpoint = base + '/api/rest/issue/' + defect_id
+    try:
+        response = session.request('GET', endpoint, headers=headers)
+        result = response.json()
+    except BaseException as e:
+        logging.error('Error getting mapi defect.')
+        logging.error(e)
+        sys.exit(1)
+    return result
 
 def exportToJira(api, headers, issue_data, dry_run):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
@@ -89,6 +109,21 @@ def exportToGitlab(api, headers, issue_data, dry_run):
             sys.exit(1)
     return resp_dict['web_url']
 
+def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
+    logging.debug('Entering ' + sys._getframe().f_code.co_name)
+    endpoint = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target + '/defect/' + defect_id
+    issue_data = '{ "jira_issue_id": "' + str(jira_id) + '", "jira_issue_url": "' + str(jira_url) + '" }'
+    if dry_run:
+        logging.debug(issue_data)
+        return endpoint
+    else:
+        try:
+            response = session.request('PUT', endpoint, headers=headers, json=issue_data, auth=auth)
+        except KeyError as e:
+            logging.error('Issue not created, check your permssions and parameters.')
+            logging.error(e)
+            sys.exit(1)
+    return
 
 OFFSET = 0
 ELEMENTS = 20
@@ -197,7 +232,6 @@ if __name__ == '__main__':
     #Ensure API is correct
     testAPI(mayhem_api['mayhem']['url'], mayhem_headers)
 
-
     if bts.name == 'jira':
         ticket = json.loads(JIRA_FORMAT)
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
@@ -210,17 +244,25 @@ if __name__ == '__main__':
         else:
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
-            ticket['fields']['summary'] = 'Mayhem ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
+            breakpoint()
+            ticket['fields']['summary'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['fields']['description'] = str(defect['description']) + '\n\n' \
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
-            if defect['examples'][0]['backtrace']:
-                ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+            if 'examples' in defect:
+                if 'backtrace' in defect['examples'][0]:
+                    ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+            if defect['type'] in ['mapi', 'zap']:
+                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
+                ticket['fields']['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
+                ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
+                ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
+                ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
             # --todo-- Can set more fields here
             link = exportToJira(bts_api, bts_headers, ticket, dry_run)
             print('Link to newly created JIRA issue: ' + str(link))
-            quit()
+            # --todo-- Update Mayhem
     if bts.name == 'gitlab':
         ticket = json.loads(GITLAB_FORMAT)
         bts_headers['PRIVATE-TOKEN'] = bts_api['gitlab']['token']
@@ -233,13 +275,20 @@ if __name__ == '__main__':
         else:
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
-            ticket['title'] = 'Mayhem ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
+            ticket['title'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['description'] = str(defect['description']) + '\n\n' \
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
             if defect['examples'][0]['backtrace']:
                 ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+            if defect['type'] in ['mapi', 'zap']:
+                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, defect['defect_number'])
+                ticket['fields']['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
+                ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
+                ticket['fields']['description'] += '*Sample Request*: \n```\n' + str(base64.b64decode(mapiIssue['request'])) + '```\n'
+                ticket['fields']['description'] += '*Sample Response*: \n```\n' + str(base64.b64decode(mapiIssue['response'])) + '```\n'
             # --todo-- Can set more fields here
             link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
             print('Link to newly created Gitlab issue: ' + str(link))
+            # --todo-- Update Mayhem
