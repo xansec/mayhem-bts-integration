@@ -164,6 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--bts', required=True, type=str, help='The type of BTS you want to export to (choices: \'jira\', \'gitlab\')')
     parser.add_argument('--defect', type=str, help='The defect number to export (exports a single defect)')
     parser.add_argument('--run', type=str, help='The run number to export (exports all defects in a run)')
+    parser.add_argument('--output-csv', action='store_true', help='Output results in CSV format instead')
     parser.add_argument('--bts-config', type=str, default='bts.config', help='The BTS configuration file (defaults to \'bts.config\')')
     parser.add_argument('--mayhem-config', type=str, default='mayhem.config', help='The Mayhem configuration file (defaults to \'mayhem.config\')')
     parser.add_argument('--use-pass', action='store_true', help='Use UNIX password store instead of hardcoded tokens')
@@ -203,6 +204,7 @@ if __name__ == '__main__':
     mayhem_config = args.mayhem_config
     use_pass = args.use_pass
     dry_run = args.dry_run
+    output_csv = args.output_csv
     if args.bts in BTS.__members__:
         bts = BTS[args.bts]
     else:
@@ -232,9 +234,14 @@ if __name__ == '__main__':
     #Ensure API is correct
     testAPI(mayhem_api['mayhem']['url'], mayhem_headers)
 
+    if output_csv:
+        f = open('defects.csv', 'w', newline='')
+        writer = csv.writer(f)
     if bts.name == 'jira':
         ticket = json.loads(JIRA_FORMAT)
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
+        if output_csv:
+            writer.writerow(['Project', 'Summary', 'Description'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
@@ -259,12 +266,17 @@ if __name__ == '__main__':
                 ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
                 ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
             # --todo-- Can set more fields here
-            link = exportToJira(bts_api, bts_headers, ticket, dry_run)
-            print('Link to newly created JIRA issue: ' + str(link))
-            # --todo-- Update Mayhem
+            if output_csv:
+                writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], ticket['fields']['description']])
+            else:
+                link = exportToJira(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created JIRA issue: ' + str(link))
+                # --todo-- Update Mayhem
     if bts.name == 'gitlab':
         ticket = json.loads(GITLAB_FORMAT)
         bts_headers['PRIVATE-TOKEN'] = bts_api['gitlab']['token']
+        if output_csv:
+            writer.writerow(['Title', 'Description'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, defect_id)
@@ -281,14 +293,17 @@ if __name__ == '__main__':
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
             if 'examples' in defect:
                 if 'backtrace' in defect['examples'][0]:
-                    ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+                    ticket['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
             if defect['type'] in ['mapi', 'zap']:
                 mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
-                ticket['fields']['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
-                ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
-                ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
-                ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
+                ticket['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
+                ticket['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
+                ticket['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
+                ticket['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
             # --todo-- Can set more fields here
-            link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
-            print('Link to newly created Gitlab issue: ' + str(link))
-            # --todo-- Update Mayhem
+            if output_csv:
+                writer.writerow([ticket['title'], ticket['description']])
+            else:
+                link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created Gitlab issue: ' + str(link))
+                # --todo-- Update Mayhem
