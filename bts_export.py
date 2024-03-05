@@ -45,15 +45,17 @@ def getDefect(api, headers, workspace, project, target, defect_id):
         sys.exit(1)
     return [result]
 
-def getDefectsForRun(api, headers, workspace, project, target, run_id, offset=0):
+def getDefectsForRun(api, headers, workspace, project, target, run_id, severity=None, offset=0):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
     base = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target
-    endpoint = base + '/run/' + run_id + '/defect?per_page=' + str(ELEMENTS) + '&offset=' + str(offset)
+    endpoint = base + '/run/' + str(run_id) + '/defect?per_page=' + str(ELEMENTS) + '&offset=' + str(offset)
+    if severity:
+        endpoint = endpoint + '&severity=' + str(severity)
     try:
         response = session.request('GET', endpoint, headers=headers)
         results = response.json()
         if len(results['defects']) == ELEMENTS:
-            results['defects'].append(getDefectsForRun(api, headers, workspace, project, target, run_id, (offset + ELEMENTS)))
+            results['defects'].append(getDefectsForRun(api, headers, workspace, project, target, run_id, severity, (offset + ELEMENTS)))
     except KeyError as e:
         logging.error('KeyError:' + str(e) + ', check your parameters.')
         sys.exit(1)
@@ -164,6 +166,7 @@ if __name__ == '__main__':
     parser.add_argument('--bts', required=True, type=str, help='The type of BTS you want to export to (choices: \'jira\', \'gitlab\')')
     parser.add_argument('--defect', type=str, help='The defect number to export (exports a single defect)')
     parser.add_argument('--run', type=str, help='The run number to export (exports all defects in a run)')
+    parser.add_argument('--severity', type=str, help='Severity level to export (i.e. "high"; defaults to all defects)')
     parser.add_argument('--output-csv', action='store_true', help='Output results in CSV format instead')
     parser.add_argument('--bts-config', type=str, default='bts.config', help='The BTS configuration file (defaults to \'bts.config\')')
     parser.add_argument('--mayhem-config', type=str, default='mayhem.config', help='The Mayhem configuration file (defaults to \'mayhem.config\')')
@@ -205,6 +208,7 @@ if __name__ == '__main__':
     use_pass = args.use_pass
     dry_run = args.dry_run
     output_csv = args.output_csv
+    severity = args.severity
     if args.bts in BTS.__members__:
         bts = BTS[args.bts]
     else:
@@ -241,13 +245,13 @@ if __name__ == '__main__':
         ticket = json.loads(JIRA_FORMAT)
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
         if output_csv:
-            writer.writerow(['Project', 'Summary', 'Description'])
+            writer.writerow(['Project', 'Summary', 'Severity', 'Description'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
         elif args.run:
             run_id = str(args.run)
-            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id)
+            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
         else:
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
@@ -265,9 +269,9 @@ if __name__ == '__main__':
                 ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
                 ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
                 ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
-            # --todo-- Can set more fields here
+            # --todo-- Can set more fields here - example: severity
             if output_csv:
-                writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], ticket['fields']['description']])
+                writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], defect['severity'], ticket['fields']['description']])
             else:
                 link = exportToJira(bts_api, bts_headers, ticket, dry_run)
                 print('Link to newly created JIRA issue: ' + str(link))
