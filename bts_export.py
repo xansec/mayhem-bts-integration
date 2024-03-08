@@ -111,16 +111,17 @@ def exportToGitlab(api, headers, issue_data, dry_run):
             sys.exit(1)
     return resp_dict['web_url']
 
+#this endpoint also creates the ticket, should just combine with createJira
 def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
-    endpoint = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target + '/defect/' + defect_id
+    endpoint = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target + '/defect/' + defect_id + '/jira-issue'
     issue_data = '{ "jira_issue_id": "' + str(jira_id) + '", "jira_issue_url": "' + str(jira_url) + '" }'
     if dry_run:
         logging.debug(issue_data)
         return endpoint
     else:
         try:
-            response = session.request('PUT', endpoint, headers=headers, json=issue_data, auth=auth)
+            response = session.request('POST', endpoint, headers=headers, json=issue_data, auth=auth)
         except KeyError as e:
             logging.error('Issue not created, check your permssions and parameters.')
             logging.error(e)
