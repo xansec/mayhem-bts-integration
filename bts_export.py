@@ -55,7 +55,7 @@ def getDefectsForRun(api, headers, workspace, project, target, run_id, severity=
         response = session.request('GET', endpoint, headers=headers)
         results = response.json()
         if len(results['defects']) == ELEMENTS:
-            results['defects'].append(getDefectsForRun(api, headers, workspace, project, target, run_id, severity, (offset + ELEMENTS)))
+            results['defects'] += (getDefectsForRun(api, headers, workspace, project, target, run_id, severity, (offset + ELEMENTS)))
     except KeyError as e:
         logging.error('KeyError:' + str(e) + ', check your parameters.')
         sys.exit(1)
