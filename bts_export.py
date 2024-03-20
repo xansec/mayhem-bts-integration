@@ -15,7 +15,7 @@ def testAPI(url, headers):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
     logging.info('Testing API connection...')
     try:
-        session.request('GET', url + '/api', headers=headers)
+        session.request('GET', url + '/api/v2/user/me', headers=headers)
     except requests.exceptions.SSLError as e:
         logging.error('SSL error. Try running with --insecure or adding the invalid cert to your keystore.')
         logging.error(e)
@@ -287,7 +287,7 @@ if __name__ == '__main__':
             defects = getDefect(mayhem_api, mayhem_headers, defect_id)
         elif args.run:
             run_id = str(args.run)
-            defects = getDefectsForRun(mayhem_api, mayhem_headers, run_id)
+            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
         else:
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
