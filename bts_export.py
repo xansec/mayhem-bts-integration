@@ -242,19 +242,19 @@ if __name__ == '__main__':
     if output_csv:
         f = open('defects.csv', 'w', newline='')
         writer = csv.writer(f)
+    if args.defect:
+        defect_id = str(args.defect)
+        defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
+    elif args.run:
+        run_id = str(args.run)
+        defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
+    else:
+        print('Must provide either --defect <id> or --run <id>')
     if bts.name == 'jira':
         ticket = json.loads(JIRA_FORMAT)
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
         if output_csv:
             writer.writerow(['Project', 'Summary', 'Severity', 'Description'])
-        if args.defect:
-            defect_id = str(args.defect)
-            defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
-        elif args.run:
-            run_id = str(args.run)
-            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
-        else:
-            print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
             ticket['fields']['summary'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['fields']['description'] = str(defect['description']) + '\n\n' \
@@ -282,14 +282,6 @@ if __name__ == '__main__':
         bts_headers['PRIVATE-TOKEN'] = bts_api['gitlab']['token']
         if output_csv:
             writer.writerow(['Title', 'Description'])
-        if args.defect:
-            defect_id = str(args.defect)
-            defects = getDefect(mayhem_api, mayhem_headers, defect_id)
-        elif args.run:
-            run_id = str(args.run)
-            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
-        else:
-            print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
             ticket['title'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['description'] = str(defect['description']) + '\n\n' \
