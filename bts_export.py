@@ -141,7 +141,7 @@ JIRA_FORMAT = '''
         "summary": "",
         "description": "",
         "issuetype": {
-            "name": "Bug"
+            "name": ""
         }
     }
 }
@@ -171,7 +171,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-csv', action='store_true', help='Output results in CSV format instead')
     parser.add_argument('--bts-config', type=str, default='bts.config', help='The BTS configuration file (defaults to \'bts.config\')')
     parser.add_argument('--mayhem-config', type=str, default='mayhem.config', help='The Mayhem configuration file (defaults to \'mayhem.config\')')
-    parser.add_argument('--use-pass', action='store_true', help='Use UNIX password store instead of hardcoded tokens')
+    parser.add_argument('--use-pass', action='store_true', help='Use CLI credential tool to retrieve secret instead of hardcoded tokens')
     parser.add_argument('--log', type=str, default='warn', help='Log level (choose from debug, info, warning, error and critical)')
     parser.add_argument('--insecure', action='store_true', help='Disable SSL verification')
     parser.add_argument('--dry-run', action='store_true', help='Dry run')
@@ -245,6 +245,7 @@ if __name__ == '__main__':
     if bts.name == 'jira':
         ticket = json.loads(JIRA_FORMAT)
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
+        ticket['fields']['issuetype']['name'] = bts_api['jira']['issue-type']
         if output_csv:
             writer.writerow(['Project', 'Summary', 'Severity', 'Description'])
         if args.defect:
