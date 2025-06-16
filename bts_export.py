@@ -15,7 +15,7 @@ def testAPI(url, headers):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
     logging.info('Testing API connection...')
     try:
-        session.request('GET', url + '/api', headers=headers)
+        session.request('GET', url + '/api/', headers=headers)
     except requests.exceptions.SSLError as e:
         logging.error('SSL error. Try running with --insecure or adding the invalid cert to your keystore.')
         logging.error(e)
