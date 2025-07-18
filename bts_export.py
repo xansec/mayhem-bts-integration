@@ -111,6 +111,25 @@ def exportToGitlab(api, headers, issue_data, dry_run):
             sys.exit(1)
     return resp_dict['web_url']
 
+def exportToAzure(api, headers, issue_data, dry_run):
+    logging.debug('Entering ' + sys._getframe().f_code.co_name)
+    endpoint = api['azure']['url'] + '/' + str(api['azure']['organization']) + '/' + str(api['azure']['project']) + '/_apis/wit/workitems/$' + str(api['azure']['type']) + '?api-version=' + str(api['azure']['api-version'])
+    auth = HTTPBasicAuth(api['azure']['username'], api['azure']['token'])
+    if dry_run:
+        logging.debug(issue_data)
+        return endpoint
+    else:
+        try:
+            response = session.request('POST', endpoint, headers=headers, json=issue_data, auth=auth)
+            resp_dict = json.loads(response.text)
+            print('Issue ' + str(resp_dict['id']) + ' created.')
+        except KeyError as e:
+            logging.error('Issue not created, check your permssions and parameters.')
+            logging.error(e)
+            logging.error(resp_dict)
+            sys.exit(1)
+    return api['azure']['url'] + '/' + api['azure']['organization'] + '/' + api['azure']['project'] + '/_workitems/edit/' + str(resp_dict['id'])
+
 #this endpoint also creates the ticket, should just combine with createJira
 def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
@@ -153,6 +172,25 @@ GITLAB_FORMAT = '''
     "description": ""
 }
 '''
+
+AZURE_FORMAT = '''
+{
+    {
+        "op": "add",
+        "path": "/fields/System.Title",
+        "from": null,
+        "value": ""
+    },
+    {
+        "op": "add",
+        "path": "/fields/System.Description",
+        "from": null,
+        "value": ""
+    }
+]
+
+'''
+
 if __name__ == '__main__':
 
     if(sys.version_info.major < 3):
@@ -193,6 +231,7 @@ if __name__ == '__main__':
     class BTS(Enum):
         jira = auto()
         gitlab = auto()
+        azure = auto()
 
     session = requests.Session()
     if args.insecure:
@@ -313,3 +352,48 @@ if __name__ == '__main__':
                 link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
                 print('Link to newly created Gitlab issue: ' + str(link))
                 # --todo-- Update Mayhem
+    if bts.name == 'azure':
+        ticket = json.loads(AZURE_FORMAT)
+        bts_headers['Content-Type'] = 'application/json-patch+json'
+        bts_headers['Authorization'] = 'Basic ' + base64.b64encode((bts_api['azure']['username'] + ':' + bts_api['azure']['token']).encode('utf-8')).decode('utf-8')
+        bts_api['azure']['api-version'] = '6.0'
+        if output_csv:
+            writer.writerow(['Title', 'Description'])
+        if args.defect:
+            defect_id = str(args.defect)
+            defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
+        elif args.run:
+            run_id = str(args.run)
+            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
+        else:
+            print('Must provide either --defect <id> or --run <id>')
+        for defect in defects:
+            ticket[0]['value'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
+            ticket[1]['value'] = str(defect['description']) + '\n\n' \
+                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
+                + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
+                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
+            if 'examples' in defect:
+                if 'backtrace' in defect['examples'][0]:
+                    ticket[1]['value'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+            if defect['type'] in ['mapi', 'zap']:
+                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
+                ticket[1]['value'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
+                ticket[1]['value'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
+                ticket[1]['value'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
+                ticket[1]['value'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
+            # --todo-- Can set more fields here
+            if output_csv:
+                writer.writerow([ticket[0]['value'], ticket[1]['value']])
+            else:
+                link = exportToAzure(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created Azure issue: ' + str(link))
+                # --todo-- Update Mayhem
+    if output_csv:
+        f.close()
+        print('CSV file created: defects.csv')
+    else:
+        print('Export complete.')
+            
+
+
