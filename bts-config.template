@@ -11,7 +11,7 @@
 		"token": "ABCDEF123456",
 		"project-key": "PK",
 		"issue-type": "Bug"
-	}
+	},
 	"azure": {
 		"url": "https://my.azure.com",
 		"username": "name@company.com",

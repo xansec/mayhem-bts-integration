@@ -260,7 +260,10 @@ if __name__ == '__main__':
         config_data = config_file.read()
     bts_api = json.loads(config_data)
     if use_pass:
-        bts_api[bts.name]['token'] = subprocess.check_output(bts_api[bts.name]['token']).strip().decode('utf-8')
+        token_name = bts_api[bts.name]['token']
+        cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
+        op_output = subprocess.check_output(cmd).strip().decode('utf-8')
+        bts_api[bts.name]['token'] = json.loads(op_output)['value'].strip()
     bts_headers = {
         'Content-Type': 'application/json'
     }
@@ -269,7 +272,10 @@ if __name__ == '__main__':
         config_data = config_file.read()
     mayhem_api = json.loads(config_data)
     if use_pass:
-        mayhem_api['mayhem']['token'] = subprocess.check_output(mayhem_api['mayhem']['token']).strip().decode('utf-8')
+        token_name = mayhem_api['mayhem']['token']
+        cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
+        op_output = subprocess.check_output(cmd).strip().decode('utf-8')
+        mayhem_api['mayhem']['token'] = json.loads(op_output)['value'].strip()
     mayhem_headers = {
         'Content-Type': 'application/json',
         'X-Mayhem-Token': ('token ' + mayhem_api['mayhem']['token'])
