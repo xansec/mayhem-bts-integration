@@ -114,7 +114,7 @@ def exportToGitlab(api, headers, issue_data, dry_run):
 def exportToAzure(api, headers, issue_data, dry_run):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
     endpoint = api['azure']['url'] + '/' + str(api['azure']['organization']) + '/' + str(api['azure']['project']) + '/_apis/wit/workitems/$' + str(api['azure']['type']) + '?api-version=' + str(api['azure']['api-version'])
-    auth = HTTPBasicAuth(api['azure']['username'], api['azure']['token'])
+    auth = ('', api['azure']['token'])
     if dry_run:
         logging.debug(issue_data)
         return endpoint
@@ -131,21 +131,21 @@ def exportToAzure(api, headers, issue_data, dry_run):
     return api['azure']['url'] + '/' + api['azure']['organization'] + '/' + api['azure']['project'] + '/_workitems/edit/' + str(resp_dict['id'])
 
 #this endpoint also creates the ticket, should just combine with createJira
-def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
-    logging.debug('Entering ' + sys._getframe().f_code.co_name)
-    endpoint = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target + '/defect/' + defect_id + '/jira-issue'
-    issue_data = '{ "jira_issue_id": "' + str(jira_id) + '", "jira_issue_url": "' + str(jira_url) + '" }'
-    if dry_run:
-        logging.debug(issue_data)
-        return endpoint
-    else:
-        try:
-            response = session.request('POST', endpoint, headers=headers, json=issue_data, auth=auth)
-        except KeyError as e:
-            logging.error('Issue not created, check your permssions and parameters.')
-            logging.error(e)
-            sys.exit(1)
-    return
+# def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
+#     logging.debug('Entering ' + sys._getframe().f_code.co_name)
+#     endpoint = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target + '/defect/' + defect_id + '/jira-issue'
+#     issue_data = '{ "jira_issue_id": "' + str(jira_id) + '", "jira_issue_url": "' + str(jira_url) + '" }'
+#     if dry_run:
+#         logging.debug(issue_data)
+#         return endpoint
+#     else:
+#         try:
+#             response = session.request('POST', endpoint, headers=headers, json=issue_data)
+#         except KeyError as e:
+#             logging.error('Issue not created, check your permssions and parameters.')
+#             logging.error(e)
+#             sys.exit(1)
+#     return
 
 OFFSET = 0
 ELEMENTS = 20
@@ -174,7 +174,7 @@ GITLAB_FORMAT = '''
 '''
 
 AZURE_FORMAT = '''
-{
+[
     {
         "op": "add",
         "path": "/fields/System.Title",
@@ -188,7 +188,6 @@ AZURE_FORMAT = '''
         "value": ""
     }
 ]
-
 '''
 
 if __name__ == '__main__':
@@ -314,8 +313,8 @@ if __name__ == '__main__':
                 mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
                 ticket['fields']['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
                 ticket['fields']['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
-                ticket['fields']['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
-                ticket['fields']['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
+                ticket['fields']['description'] += '*Sample Request*: \n```\n ' + base64.b64decode(mapiIssue['request']).decode('utf-8') + ' ```\n'
+                ticket['fields']['description'] += '*Sample Response*: \n```\n ' + base64.b64decode(mapiIssue['response']).decode('utf-8') + ' ```\n'
             # --todo-- Can set more fields here - example: severity
             if output_csv:
                 writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], defect['severity'], ticket['fields']['description']])
@@ -349,8 +348,8 @@ if __name__ == '__main__':
                 mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
                 ticket['description'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
                 ticket['description'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
-                ticket['description'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
-                ticket['description'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
+                ticket['description'] += '*Sample Request*: \n```\n ' + base64.b64decode(mapiIssue['request']).decode('utf-8') + ' ```\n'
+                ticket['description'] += '*Sample Response*: \n```\n ' + base64.b64decode(mapiIssue['response']).decode('utf-8') + ' ```\n'
             # --todo-- Can set more fields here
             if output_csv:
                 writer.writerow([ticket['title'], ticket['description']])
@@ -362,7 +361,6 @@ if __name__ == '__main__':
         ticket = json.loads(AZURE_FORMAT)
         bts_headers['Content-Type'] = 'application/json-patch+json'
         bts_headers['Authorization'] = 'Basic ' + base64.b64encode((bts_api['azure']['username'] + ':' + bts_api['azure']['token']).encode('utf-8')).decode('utf-8')
-        bts_api['azure']['api-version'] = '6.0'
         if output_csv:
             writer.writerow(['Title', 'Description'])
         if args.defect:
@@ -375,19 +373,19 @@ if __name__ == '__main__':
             print('Must provide either --defect <id> or --run <id>')
         for defect in defects:
             ticket[0]['value'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
-            ticket[1]['value'] = str(defect['description']) + '\n\n' \
-                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
-                + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
-                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
+            ticket[1]['value'] = str(defect['description']) + '<br><br>' \
+                + '<b>CWE</b>: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '<br>' \
+                + '<b>Target</b>: ' + workspace + '/' + project + '/' + target + '<br>' \
+                + '<b>Discovered on</b>: ' + str(defect['created_at']) + '<br>'
             if 'examples' in defect:
                 if 'backtrace' in defect['examples'][0]:
-                    ticket[1]['value'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
+                    ticket[1]['value'] += '<b>Backtrace</b>: <br><br><code>' + str(defect['examples'][0]['backtrace']) + '</code><br><br>'
             if defect['type'] in ['mapi', 'zap']:
                 mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
-                ticket[1]['value'] += '*Error*: ' + str(mapiIssue['issue_rule_id']) + '\n'
-                ticket[1]['value'] += '*Endpoint*: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
-                ticket[1]['value'] += '*Sample Request*: \n```\n ' + str(base64.b64decode(mapiIssue['request'])) + ' ```\n'
-                ticket[1]['value'] += '*Sample Response*: \n```\n ' + str(base64.b64decode(mapiIssue['response'])) + ' ```\n'
+                ticket[1]['value'] += '<b>Error</b>: ' + str(mapiIssue['issue_rule_id']) + '<br>'
+                ticket[1]['value'] += '<b>Endpoint</b>: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '<br>'
+                ticket[1]['value'] += '<b>Sample Request</b>: <br><br><code>' + base64.b64decode(mapiIssue['request']).decode('utf-8').replace('\n', '<br>') + '</code><br><br>'
+                ticket[1]['value'] += '<b>Sample Response</b>: <br><br><code>' + base64.b64decode(mapiIssue['response']).decode('utf-8').replace('\n', '<br>') + '</code><br><br>'
             # --todo-- Can set more fields here
             if output_csv:
                 writer.writerow([ticket[0]['value'], ticket[1]['value']])
