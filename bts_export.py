@@ -124,7 +124,7 @@ def exportToAzure(api, headers, issue_data, dry_run):
             resp_dict = json.loads(response.text)
             print('Issue ' + str(resp_dict['id']) + ' created.')
         except KeyError as e:
-            logging.error('Issue not created, check your permssions and parameters.')
+            logging.error('Issue not created, check your permssions and parameters (perhaps the project, target, or run does not exist?).')
             logging.error(e)
             logging.error(resp_dict)
             sys.exit(1)
@@ -257,7 +257,11 @@ if __name__ == '__main__':
 
     with open(bts_config, 'r') as config_file:
         config_data = config_file.read()
-    bts_api = json.loads(config_data)
+    try:
+        bts_api = json.loads(config_data)
+    except json.decoder.JSONDecodeError as e:
+        logging.error(e)
+        logging.error('Failed to parse config file. Please make sure it is valid JSON.')
     if use_pass:
         token_name = bts_api[bts.name]['token']
         cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
@@ -269,7 +273,11 @@ if __name__ == '__main__':
 
     with open(mayhem_config, 'r') as config_file:
         config_data = config_file.read()
-    mayhem_api = json.loads(config_data)
+    try:
+        mayhem_api = json.loads(config_data)
+    except json.decoder.JSONDecodeError as e:
+        logging.error(e)
+        logging.error('Failed to parse config file. Please make sure it is valid JSON.')
     if use_pass:
         token_name = mayhem_api['mayhem']['token']
         cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
