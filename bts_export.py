@@ -69,6 +69,8 @@ def getDefect(api, headers, workspace, project, target, defect_id):
     testcase_reports = getTestcaseReport(api, headers, workspace, project, target, defect_id)
     if testcase_reports:
         result['examples'] = testcase_reports
+    mayhem_link = api['mayhem']['url'] + '/' + workspace + '/' + project + '/' + target + '/-/defects/' + str(defect_id)
+    result['mayhem_link'] = mayhem_link
     return [result]
 
 def getDefectsForRun(api, headers, workspace, project, target, run_id, severity=None, offset=0):
@@ -253,6 +255,7 @@ SENTRY_FORMAT = '''
                     "mechanism": {
                         "type": "",
                         "description": "",
+                        "help_link": "",
                         "exception_id": ""
                     },
                     "stacktrace": {}
@@ -337,10 +340,11 @@ if __name__ == '__main__':
         logging.error(e)
         logging.error('Failed to parse config file. Please make sure it is valid JSON.')
     if use_pass:
-        token_name = bts_api[bts.name]['token']
-        cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
-        op_output = subprocess.check_output(cmd).strip().decode('utf-8')
-        bts_api[bts.name]['token'] = json.loads(op_output)['value'].strip()
+        if 'token' in bts_api[bts.name]:
+            token_name = bts_api[bts.name]['token']
+            cmd = ["op", "item", "get", token_name, "--format", "json", "--fields", "password"]
+            op_output = subprocess.check_output(cmd).strip().decode('utf-8')
+            bts_api[bts.name]['token'] = json.loads(op_output)['value'].strip()
     bts_headers = {
         'Content-Type': 'application/json'
     }
@@ -373,7 +377,7 @@ if __name__ == '__main__':
         ticket['fields']['project']['key'] = bts_api['jira']['project-key']
         ticket['fields']['issuetype']['name'] = bts_api['jira']['issue-type']
         if output_csv:
-            writer.writerow(['Project', 'Summary', 'Severity', 'Description'])
+            writer.writerow(['Project', 'Summary', 'Severity', 'Description', 'Link'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
@@ -387,7 +391,8 @@ if __name__ == '__main__':
             ticket['fields']['description'] = str(defect['description']) + '\n\n' \
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
-                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
+                + '*Discovered on*: ' + str(defect['created_at']) + '\n' \
+                + '*Mayhem Link*: ' + str(defect['mayhem_link']) + '\n'
             if 'examples' in defect:
                 if 'backtrace' in defect['examples'][0]:
                     ticket['fields']['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
@@ -399,16 +404,16 @@ if __name__ == '__main__':
                 ticket['fields']['description'] += '*Sample Response*: \n```\n ' + base64.b64decode(mapiIssue['response']).decode('utf-8') + ' ```\n'
             # --todo-- Can set more fields here - example: severity
             if output_csv:
-                writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], defect['severity'], ticket['fields']['description']])
+                writer.writerow([ticket['fields']['project']['key'], ticket['fields']['summary'], defect['severity'], ticket['fields']['description'], defect['mayhem_link']])
             else:
-                link = exportToJira(bts_api, bts_headers, ticket, dry_run)
-                print('Link to newly created JIRA issue: ' + str(link))
+                bts_link = exportToJira(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created JIRA issue: ' + str(bts_link))
                 # --todo-- Update Mayhem
     if bts.name == 'gitlab':
         ticket = json.loads(GITLAB_FORMAT)
         bts_headers['PRIVATE-TOKEN'] = bts_api['gitlab']['token']
         if output_csv:
-            writer.writerow(['Title', 'Description'])
+            writer.writerow(['Title', 'Description', 'Link'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, defect_id)
@@ -422,7 +427,8 @@ if __name__ == '__main__':
             ticket['description'] = str(defect['description']) + '\n\n' \
                 + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
-                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
+                + '*Discovered on*: ' + str(defect['created_at']) + '\n' \
+                + '*Mayhem Link*: ' + str(defect['mayhem_link']) + '\n'
             if 'examples' in defect:
                 if 'backtrace' in defect['examples'][0]:
                     ticket['description'] += '*Backtrace*: \n```\n' + str(defect['examples'][0]['backtrace']) + '```\n'
@@ -434,17 +440,17 @@ if __name__ == '__main__':
                 ticket['description'] += '*Sample Response*: \n```\n ' + base64.b64decode(mapiIssue['response']).decode('utf-8') + ' ```\n'
             # --todo-- Can set more fields here
             if output_csv:
-                writer.writerow([ticket['title'], ticket['description']])
+                writer.writerow([ticket['title'], ticket['description'], defect['mayhem_link']])
             else:
-                link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
-                print('Link to newly created Gitlab issue: ' + str(link))
+                bts_link = exportToGitlab(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created Gitlab issue: ' + str(bts_link))
                 # --todo-- Update Mayhem
     if bts.name == 'azure':
         ticket = json.loads(AZURE_FORMAT)
         bts_headers['Content-Type'] = 'application/json-patch+json'
         bts_headers['Authorization'] = 'Basic ' + base64.b64encode((bts_api['azure']['username'] + ':' + bts_api['azure']['token']).encode('utf-8')).decode('utf-8')
         if output_csv:
-            writer.writerow(['Title', 'Description'])
+            writer.writerow(['Title', 'Description', 'Link'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
@@ -458,7 +464,8 @@ if __name__ == '__main__':
             ticket[1]['value'] = str(defect['description']) + '<br><br>' \
                 + '<b>CWE</b>: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '<br>' \
                 + '<b>Target</b>: ' + workspace + '/' + project + '/' + target + '<br>' \
-                + '<b>Discovered on</b>: ' + str(defect['created_at']) + '<br>'
+                + '<b>Discovered on</b>: ' + str(defect['created_at']) + '<br>' \
+                + '<b>Mayhem Link</b>: <a href="' + str(defect['mayhem_link']) + '">' + str(defect['mayhem_link']) + '</a><br><br>'
             if 'examples' in defect:
                 if 'backtrace' in defect['examples'][0]:
                     ticket[1]['value'] += '<b>Backtrace</b>: <br><br><code>' + str(defect['examples'][0]['backtrace']) + '</code><br><br>'
@@ -470,16 +477,16 @@ if __name__ == '__main__':
                 ticket[1]['value'] += '<b>Sample Response</b>: <br><br><code>' + base64.b64decode(mapiIssue['response']).decode('utf-8').replace('\n', '<br>') + '</code><br><br>'
             # --todo-- Can set more fields here
             if output_csv:
-                writer.writerow([ticket[0]['value'], ticket[1]['value']])
+                writer.writerow([ticket[0]['value'], ticket[1]['value'], defect['mayhem_link']])
             else:
-                link = exportToAzure(bts_api, bts_headers, ticket, dry_run)
-                print('Link to newly created Azure issue: ' + str(link))
+                bts_link = exportToAzure(bts_api, bts_headers, ticket, dry_run)
+                print('Link to newly created Azure issue: ' + str(bts_link))
     if bts.name == 'sentry':
         ticket = json.loads(SENTRY_FORMAT)
         bts_headers['Content-Type'] = 'application/x-sentry-envelope'
         bts_headers['X-Sentry-Auth'] = f'Sentry sentry_version={bts_api["sentry"]["version"]}, sentry_key={bts_api["sentry"]["public-key"]}, sentry_client=mayhem/1.0'
         if output_csv:
-            writer.writerow(['Event ID', 'Exception Value', 'Description', 'Exception ID', 'Stacktrace'])
+            writer.writerow(['Event ID', 'Exception Value', 'Description', 'Exception ID', 'Stacktrace', 'Link'])
         if args.defect:
             defect_id = str(args.defect)
             defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
@@ -494,11 +501,12 @@ if __name__ == '__main__':
             ticket[0]['dsn'] = f'https://{bts_api["sentry"]["public-key"]}@{bts_api["sentry"]["dsn-id"]}.ingest.us.sentry.io/{bts_api["sentry"]["project-id"]}'
             ticket[2]['exception']['values'][0]['value'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket[2]['exception']['values'][0]['mechanism']['type'] = bts_api['sentry']['mechanism-type']
+            ticket[2]['exception']['values'][0]['mechanism']['help_link'] = defect['mayhem_link']
             ticket[2]['exception']['values'][0]['mechanism']['description'] = str(defect['description']) + '\n\n' \
-                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
-                + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
-                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
-            ticket[2]['exception']['values'][0]['mechanism']['exception_id'] = str(defect['defect_number'])
+                + 'CWE: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
+                + 'Target: ' + workspace + '/' + project + '/' + target + '\n' \
+                + 'Discovered on: ' + str(defect['created_at']) + '\n'
+            ticket[2]['exception']['values'][0]['mechanism']['exception_id'] = int(defect['defect_number'])
             if 'examples' in defect:
                 if 'parsed_backtrace' in defect['examples'][0]:
                     ticket[2]['exception']['values'][0]['stacktrace'] = {
@@ -508,11 +516,17 @@ if __name__ == '__main__':
                         ticket[2]['exception']['values'][0]['stacktrace']['frames'].append({
                             "filename": line['src'].split(':')[0] if line['src'] else '<unknown>',
                             "function": line['fn'] if line['fn'] else '<unknown>',
-                            "lineno": line['src'].split(':')[1] if line['src'] else 0
+                            "lineno": int(line['src'].split(':')[1]) if line['src'] else 0
                         })
+            if defect['type'] in ['mapi', 'zap']:
+                mapiIssue = getMapiIssue(mayhem_api, mayhem_headers, workspace, project, str(defect['defect_number']))
+                ticket[2]['exception']['values'][0]['mechanism']['description'] += 'Error: ' + str(mapiIssue['issue_rule_id']) + '\n'
+                ticket[2]['exception']['values'][0]['mechanism']['description'] += 'Endpoint: ' + str(mapiIssue['method']) + ' ' + str(mapiIssue['path']) + '\n'
+                ticket[2]['exception']['values'][0]['mechanism']['description'] += 'Sample Request: \n```\n ' + base64.b64decode(mapiIssue['request']).decode('utf-8') + ' ```\n'
+                ticket[2]['exception']['values'][0]['mechanism']['description'] += 'Sample Response: \n```\n ' + base64.b64decode(mapiIssue['response']).decode('utf-8') + ' ```\n'
             # --todo-- Can set more fields here
             if output_csv:
-                writer.writerow([ticket[0]['event_id'], ticket[2]['exception']['values'][0]['value'], ticket[2]['exception']['values'][0]['mechanism']['description'], ticket[2]['exception']['values'][0]['mechanism']['exception_id'], json.dumps(ticket[2]['exception']['values'][0]['stacktrace'])])
+                writer.writerow([ticket[0]['event_id'], ticket[2]['exception']['values'][0]['value'], ticket[2]['exception']['values'][0]['mechanism']['description'], ticket[2]['exception']['values'][0]['mechanism']['exception_id'], json.dumps(ticket[2]['exception']['values'][0]['stacktrace'])], defect['mayhem_link'])
             else:
                 envelope = "\n".join(json.dumps(section) for section in ticket)
                 event_id = exportToSentry(bts_api, bts_headers, envelope, dry_run)
