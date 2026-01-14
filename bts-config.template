@@ -20,5 +20,13 @@
 		"project": "my-project",
 		"type": "Bug",
 		"api-version": "7.1"
+	},
+	"sentry": {
+		"url": "https://123.ingest.us.sentry.io",
+		"project-id": "456",
+		"public-key": "789",
+		"version": "7",
+		"mechanism-type": "generic",
+		"dsn-id": "123"
 	}
 }
