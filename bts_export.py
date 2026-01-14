@@ -8,6 +8,7 @@ import json
 import logging
 import subprocess
 import base64
+import uuid
 from enum import Enum, auto
 from requests.auth import HTTPBasicAuth
 
@@ -26,6 +27,28 @@ def testAPI(url, headers):
         sys.exit(1)
     return
 
+def getTestcaseReport(api, headers, workspace, project, target, defect_id):
+    logging.debug('Entering ' + sys._getframe().f_code.co_name)
+    base = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target
+    endpoint = base + '/defect/' + defect_id + '/testcase_report?per_page=10'
+    try:
+        response = session.request('GET', endpoint, headers=headers)
+        result = response.json()
+        if 'message' in result:
+            raise ValueError(result['message'])
+    except ValueError as e:
+        logging.error('Error getting testcase report.')
+        logging.error(e)
+        sys.exit(1)
+    except BaseException as e:
+        logging.error('Error getting testcase report.')
+        logging.error(e)
+        sys.exit(1)
+    if result['count'] == 0:
+        logging.warn('No testcase reports found for defect ' + str(defect_id))
+        return None
+    return result['testcase_reports']
+
 def getDefect(api, headers, workspace, project, target, defect_id):
     logging.debug('Entering ' + sys._getframe().f_code.co_name)
     base = api['mayhem']['url'] + '/api/v2/owner/' + workspace + '/project/' + project + '/target/' + target
@@ -43,6 +66,9 @@ def getDefect(api, headers, workspace, project, target, defect_id):
         logging.error('Error getting defect.')
         logging.error(e)
         sys.exit(1)
+    testcase_reports = getTestcaseReport(api, headers, workspace, project, target, defect_id)
+    if testcase_reports:
+        result['examples'] = testcase_reports
     return [result]
 
 def getDefectsForRun(api, headers, workspace, project, target, run_id, severity=None, offset=0):
@@ -130,6 +156,24 @@ def exportToAzure(api, headers, issue_data, dry_run):
             sys.exit(1)
     return api['azure']['url'] + '/' + api['azure']['organization'] + '/' + api['azure']['project'] + '/_workitems/edit/' + str(resp_dict['id'])
 
+def exportToSentry(api, headers, issue_data, dry_run):
+    logging.debug('Entering ' + sys._getframe().f_code.co_name)
+    endpoint = api['sentry']['url'] + '/api/' + str(api['sentry']['project-id']) + '/envelope/'
+    if dry_run:
+        logging.debug(issue_data)
+        return endpoint
+    else:
+        try:
+            response = session.request('POST', endpoint, headers=headers, data=issue_data)
+            resp_dict = json.loads(response.text)
+            print('Issue ' + str(resp_dict['id']) + ' created.')
+        except KeyError as e:
+            logging.error('Issue not created, check your permssions and parameters.')
+            logging.error(e)
+            logging.error(resp_dict)
+            sys.exit(1)
+    return resp_dict['id']
+
 #this endpoint also creates the ticket, should just combine with createJira
 # def updateMayhem(api, headers, workspace, project, target, defect_id, jira_url, jira_id):
 #     logging.debug('Entering ' + sys._getframe().f_code.co_name)
@@ -190,6 +234,35 @@ AZURE_FORMAT = '''
 ]
 '''
 
+SENTRY_FORMAT = '''
+[
+    {
+        "event_id": "",
+        "sent_at": "",
+        "dsn": ""
+    },
+    {   
+        "type": "event"
+    },
+    {
+        "exception": {
+            "values": [
+                {
+                    "type": "Mayhem Defect",
+                    "value":"",
+                    "mechanism": {
+                        "type": "",
+                        "description": "",
+                        "exception_id": ""
+                    },
+                    "stacktrace": {}
+                }
+            ]
+        }
+    }
+]
+'''
+
 if __name__ == '__main__':
 
     if(sys.version_info.major < 3):
@@ -201,7 +274,7 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', required=True, type=str, help='The workspace for the project')
     parser.add_argument('--project', required=True, type=str, help='The name of the project')
     parser.add_argument('--target', required=True, type=str, help='The name of the target')
-    parser.add_argument('--bts', required=True, type=str, help='The type of BTS you want to export to (choices: \'jira\', \'gitlab\')')
+    parser.add_argument('--bts', required=True, type=str, help='The type of BTS you want to export to (choices: \'jira\', \'gitlab\', \'azure\', \'sentry\')')
     parser.add_argument('--defect', type=str, help='The defect number to export (exports a single defect)')
     parser.add_argument('--run', type=str, help='The run number to export (exports all defects in a run)')
     parser.add_argument('--severity', type=str, help='Severity level to export (i.e. "high"; defaults to all defects)')
@@ -210,7 +283,7 @@ if __name__ == '__main__':
     parser.add_argument('--mayhem-config', type=str, default='mayhem.config', help='The Mayhem configuration file (defaults to \'mayhem.config\')')
     parser.add_argument('--use-pass', action='store_true', help='Use CLI credential tool to retrieve secret instead of hardcoded tokens')
     parser.add_argument('--log', type=str, default='warn', help='Log level (choose from debug, info, warning, error and critical)')
-    parser.add_argument('--insecure', action='store_true', help='Disable SSL verification')
+    parser.add_argument('--insecure', action='store_true', help='Ignore SSL certificate errors')
     parser.add_argument('--dry-run', action='store_true', help='Dry run')
 
 
@@ -231,6 +304,7 @@ if __name__ == '__main__':
         jira = auto()
         gitlab = auto()
         azure = auto()
+        sentry = auto()
 
     session = requests.Session()
     if args.insecure:
@@ -251,7 +325,7 @@ if __name__ == '__main__':
     if args.bts in BTS.__members__:
         bts = BTS[args.bts]
     else:
-        print('You must provide a BTS type with the --bts flag (choices: \'jira\', \'gitlab\')')
+        print('You must provide a BTS type with the --bts flag (choices: \'jira\', \'gitlab\', \'azure\', \'sentry\')')
         print(parser.print_help())
         sys.exit(1)
 
@@ -303,7 +377,7 @@ if __name__ == '__main__':
         for defect in defects:
             ticket['fields']['summary'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['fields']['description'] = str(defect['description']) + '\n\n' \
-                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
+                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
             if 'examples' in defect:
@@ -338,7 +412,7 @@ if __name__ == '__main__':
         for defect in defects:
             ticket['title'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket['description'] = str(defect['description']) + '\n\n' \
-                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '\n' \
+                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
                 + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
                 + '*Discovered on*: ' + str(defect['created_at']) + '\n'
             if 'examples' in defect:
@@ -374,7 +448,7 @@ if __name__ == '__main__':
         for defect in defects:
             ticket[0]['value'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
             ticket[1]['value'] = str(defect['description']) + '<br><br>' \
-                + '<b>CWE</b>: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_description']) + '<br>' \
+                + '<b>CWE</b>: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '<br>' \
                 + '<b>Target</b>: ' + workspace + '/' + project + '/' + target + '<br>' \
                 + '<b>Discovered on</b>: ' + str(defect['created_at']) + '<br>'
             if 'examples' in defect:
@@ -392,7 +466,49 @@ if __name__ == '__main__':
             else:
                 link = exportToAzure(bts_api, bts_headers, ticket, dry_run)
                 print('Link to newly created Azure issue: ' + str(link))
-                # --todo-- Update Mayhem
+    if bts.name == 'sentry':
+        ticket = json.loads(SENTRY_FORMAT)
+        bts_headers['Content-Type'] = 'application/x-sentry-envelope'
+        bts_headers['X-Sentry-Auth'] = f'Sentry sentry_version={bts_api["sentry"]["version"]}, sentry_key={bts_api["sentry"]["public-key"]}, sentry_client=mayhem/1.0'
+        if output_csv:
+            writer.writerow(['Event ID', 'Exception Value', 'Description', 'Exception ID', 'Stacktrace'])
+        if args.defect:
+            defect_id = str(args.defect)
+            defects = getDefect(mayhem_api, mayhem_headers, workspace, project, target, defect_id)
+        elif args.run:
+            run_id = str(args.run)
+            defects = getDefectsForRun(mayhem_api, mayhem_headers, workspace, project, target, run_id, severity)
+        else:
+            print('Must provide either --defect <id> or --run <id>')
+        for defect in defects:
+            ticket[0]['event_id'] = uuid.uuid4().hex
+            ticket[0]['sent_at'] = dt.datetime.now(dt.UTC).isoformat()
+            ticket[0]['dsn'] = f'https://{bts_api["sentry"]["public-key"]}@{bts_api["sentry"]["dsn-id"]}.ingest.us.sentry.io/{bts_api["sentry"]["project-id"]}'
+            ticket[2]['exception']['values'][0]['value'] = '[Mayhem] ' + str(defect['defect_number']) + ' in ' + project +'/' + target + ': ' + str(defect['title'])
+            ticket[2]['exception']['values'][0]['mechanism']['type'] = bts_api['sentry']['mechanism-type']
+            ticket[2]['exception']['values'][0]['mechanism']['description'] = str(defect['description']) + '\n\n' \
+                + '*CWE*: ' + str(defect['cwe_number']) + ' ' + str(defect['cwe_link']) + '\n' \
+                + '*Target*: ' + workspace + '/' + project + '/' + target + '\n' \
+                + '*Discovered on*: ' + str(defect['created_at']) + '\n'
+            ticket[2]['exception']['values'][0]['mechanism']['exception_id'] = str(defect['defect_number'])
+            if 'examples' in defect:
+                if 'parsed_backtrace' in defect['examples'][0]:
+                    ticket[2]['exception']['values'][0]['stacktrace'] = {
+                        "frames": []
+                    }
+                    for line in defect['examples'][0]['parsed_backtrace']:
+                        ticket[2]['exception']['values'][0]['stacktrace']['frames'].append({
+                            "filename": line['src'].split(':')[0] if line['src'] else '<unknown>',
+                            "function": line['fn'] if line['fn'] else '<unknown>',
+                            "lineno": line['src'].split(':')[1] if line['src'] else 0
+                        })
+            # --todo-- Can set more fields here
+            if output_csv:
+                writer.writerow([ticket[0]['event_id'], ticket[2]['exception']['values'][0]['value'], ticket[2]['exception']['values'][0]['mechanism']['description'], ticket[2]['exception']['values'][0]['mechanism']['exception_id'], json.dumps(ticket[2]['exception']['values'][0]['stacktrace'])])
+            else:
+                envelope = "\n".join(json.dumps(section) for section in ticket)
+                event_id = exportToSentry(bts_api, bts_headers, envelope, dry_run)
+                print('Sentry Event ID: ' + str(event_id))
     if output_csv:
         f.close()
         print('CSV file created: defects.csv')
